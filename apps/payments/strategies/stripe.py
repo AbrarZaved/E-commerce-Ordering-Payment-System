@@ -114,13 +114,13 @@ class StripeStrategy(PaymentStrategy):
                 {
                     "price_data": {
                         "currency": settings.STRIPE_CURRENCY,
-                        "product_data": {"name": "Order #" + str(payment.order_id)},
+                        "product_data": {"name": "Payment #" + str(payment.id)},
                         "unit_amount": self._to_minor_units(payment.amount),
                     },
                     "quantity": 1,
                 }
             ],
-            metadata={"order_id": payment.order_id, "payment_id": payment.id},
+            metadata={"payment_id": payment.id},
             success_url=self._success_url(payment),
             cancel_url=self._cancel_url(payment),
         )

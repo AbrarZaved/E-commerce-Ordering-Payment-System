@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from apps.core.models import TimeStampedModel
@@ -18,7 +19,21 @@ class PaymentStatus(models.TextChoices):
 
 
 class Payment(TimeStampedModel):
-    order = models.ForeignKey(Order, related_name="payments", on_delete=models.CASCADE)
+    # order is nullable: for the storefront flow the order is created ONLY after
+    # the payment succeeds, so a failed/abandoned checkout never records one.
+    order = models.ForeignKey(
+        Order, related_name="payments", on_delete=models.CASCADE, null=True, blank=True
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="payments",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    # Cart snapshot captured at initiation (list of {"product_id", "quantity"})
+    # so the order can be built at success time without a pre-existing order.
+    items_snapshot = models.JSONField(default=list, blank=True)
     provider = models.CharField(max_length=20, choices=PaymentProvider.choices)
     # transaction_id is provider's reference; unique but nullable until assigned.
     transaction_id = models.CharField(max_length=255, unique=True, null=True, blank=True)

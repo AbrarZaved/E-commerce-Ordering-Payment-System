@@ -1,11 +1,10 @@
 from django.conf import settings
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-from apps.orders.models import Order
 
 from .models import Payment, PaymentProvider
 from .serializers import (
@@ -19,7 +18,7 @@ from .strategies import get_strategy
 
 def _owned_payments(user):
     """Payments belonging to the requesting user's own orders."""
-    return Payment.objects.filter(order__user=user).select_related("order")
+    return Payment.objects.filter(Q(user=user) | Q(order__user=user)).select_related("order")
 
 class PaymentConfigView(APIView):
     # Public payment configuration for the browser (e.g. Stripe publishable key).
@@ -69,11 +68,8 @@ class PaymentInitiateView(APIView):
     def post(self, request):
         serializer = InitiatePaymentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        order = get_object_or_404(
-            Order, pk=serializer.validated_data["order_id"], user=request.user
-        )
         service = PaymentService(serializer.validated_data["provider"])
-        payment = service.initiate(order)
+        payment = service.initiate_from_cart(request.user)
         data = PaymentSerializer(payment).data
         # Surface the client action (redirect/secret) from the raw response.
         data["client_secret"] = payment.raw_response.get("client_secret")

@@ -25,6 +25,7 @@ class PaymentService:
         self.provider = provider
         self.strategy = get_strategy(provider)
 
+
     @transaction.atomic
     def initiate(self, order: Order) -> Payment:
         if order.status != OrderStatus.PENDING:
@@ -32,13 +33,41 @@ class PaymentService:
 
         payment = Payment.objects.create(
             order=order,
+            user=order.user,
             provider=self.provider,
             amount=order.total_amount,
             status=PaymentStatus.INITIATED,
         )
+        return self._run_strategy_initiate(payment)
+
+    @transaction.atomic
+    def initiate_from_cart(self, user) -> Payment:
+        """Initiate a payment straight from the user's cart WITHOUT creating an
+        order first.
+
+        The order is recorded only if/when the payment succeeds (see
+        ``_apply_result``), so a failed or abandoned checkout never leaves a
+        pending order behind.
+        """
+        from apps.cart.services import snapshot_cart
+
+        snapshot, amount = snapshot_cart(user)
+        payment = Payment.objects.create(
+            user=user,
+            provider=self.provider,
+            amount=amount,
+            items_snapshot=snapshot,
+            status=PaymentStatus.INITIATED,
+        )
+        return self._run_strategy_initiate(payment)
+
+    def _run_strategy_initiate(self, payment: Payment) -> Payment:
         result = self.strategy.initiate(payment)
         payment.transaction_id = result.transaction_id
         payment.status = result.status
+        # Persist the provider payload plus normalized client-action fields so the
+        # API layer can surface a redirect URL / client secret with no provider
+        # branching (works for Stripe Checkout, bKash, and any future provider).
         raw = dict(result.raw or {})
         if result.redirect_url:
             raw["redirect_url"] = result.redirect_url
@@ -74,12 +103,29 @@ class PaymentService:
 
         # Idempotency: only transition the order + reduce stock once.
         if status == PaymentStatus.SUCCEEDED and not already_succeeded:
-            order = Order.objects.select_for_update().get(pk=payment.order_id)
-            if order.status != OrderStatus.PAID:
-                reduce_stock_for_order(order)
-                order.mark_paid()
-                clear_cart(order.user)
-                logger.info("order %s marked paid via payment %s", order.id, payment.id)
+            from apps.cart.services import clear_cart
+
+            if payment.order_id is None:
+                # Deferred storefront flow: create the order ONLY now that the
+                # payment has succeeded, so no pending order is ever recorded for
+                # a failed or abandoned checkout.
+                from apps.orders.services import create_paid_order
+
+                order = create_paid_order(payment.user, payment.items_snapshot)
+                payment.order = order
+                payment.save(update_fields=["order", "updated_at"])
+                clear_cart(payment.user)
+                logger.info("order %s created + paid via deferred payment %s", order.id, payment.id)
+            else:
+                # Order-based flow (a pending order was pre-created): mark it paid.
+                order = Order.objects.select_for_update().get(pk=payment.order_id)
+                if order.status != OrderStatus.PAID:
+                    reduce_stock_for_order(order)
+                    order.mark_paid()
+                    # Empty the cart only now that payment has succeeded, so a
+                    # failed/cancelled/abandoned payment leaves the cart for a retry.
+                    clear_cart(order.user)
+                    logger.info("order %s marked paid via payment %s", order.id, payment.id)
         elif status == PaymentStatus.FAILED:
             logger.warning("payment %s failed", payment.id)
 

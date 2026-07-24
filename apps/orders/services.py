@@ -41,7 +41,34 @@ def create_order(user, items: list[dict]) -> Order:
     order.recalculate_total()
     logger.info("order %s created for user %s total=%s", order.id, user.id, order.total_amount)
     return order
+@transaction.atomic
+def create_paid_order(user, items: list[dict]) -> Order:
+    # Create an order that is ALREADY paid and reduce stock atomically.
 
+    if not items:
+        raise InvalidOrderState("Cannot create an order with no items.")
+
+    order = Order.objects.create(user=user, status=OrderStatus.PAID)
+
+    product_ids = [item["product_id"] for item in items]
+    products = {p.id: p for p in Product.objects.filter(id__in=product_ids)}
+
+    for item in items:
+        product = products.get(item["product_id"])
+        quantity = item["quantity"]
+        if product is None or product.status != ProductStatus.ACTIVE:
+            raise InvalidOrderState(f"Product {item['product_id']} is not available.")
+        OrderItem.objects.create(
+            order=order,
+            product=product,
+            quantity=quantity,
+            price=product.price,
+        )
+
+    order.recalculate_total()
+    reduce_stock_for_order(order)
+    logger.info("paid order %s created for user %s total=%s", order.id, user.id, order.total_amount)
+    return order
 
 @transaction.atomic
 def reduce_stock_for_order(order: Order) -> None:

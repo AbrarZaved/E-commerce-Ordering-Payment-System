@@ -1,6 +1,9 @@
+from django.contrib.auth import get_user_model
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from apps.core.pagination import DefaultPagination
 
 from .serializers import (
     EmailTokenObtainPairSerializer,
@@ -8,6 +11,7 @@ from .serializers import (
     UserSerializer,
 )
 
+User = get_user_model()
 
 class RegisterView(APIView):
     """Public registration endpoint."""
@@ -40,3 +44,15 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+
+class AdminUserListView(APIView):
+    """Staff-only: list every registered user (for the admin panel)."""
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        users = User.objects.all().order_by("-date_joined")
+        paginator = DefaultPagination()
+        page = paginator.paginate_queryset(users, request, view=self)
+        return paginator.get_paginated_response(UserSerializer(page, many=True).data)

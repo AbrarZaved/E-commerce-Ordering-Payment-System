@@ -21,7 +21,6 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 
 class InitiatePaymentSerializer(serializers.Serializer):
-    order_id = serializers.IntegerField(min_value=1)
     provider = serializers.ChoiceField(choices=supported_providers())
 
 

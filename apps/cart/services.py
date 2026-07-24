@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -112,6 +113,23 @@ def merge_items(user, items: list[dict]) -> Cart:
     logger.info("cart merge user=%s incoming=%s", user.id, len(items))
     return cart
 
+@transaction.atomic
+def snapshot_cart(user):
+    # Validate the cart and return ``(items, total_amount)`` WITHOUT creating an order.
+    cart = get_or_create_cart(user)
+    items = list(cart.items.select_related("product").all())
+    if not items:
+        raise InvalidOrderState("Your cart is empty.")
+    snapshot = []
+    total = Decimal("0.00")
+    for item in items:
+        product = item.product
+        if product.status != ProductStatus.ACTIVE:
+            raise InvalidOrderState(f"Product '{product.name}' is not available.")
+        _assert_stock(product, item.quantity)
+        snapshot.append({"product_id": product.id, "quantity": item.quantity})
+        total += product.price * item.quantity
+    return snapshot, total.quantize(Decimal("0.01"))
 
 @transaction.atomic
 def checkout_cart(user):

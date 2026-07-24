@@ -8,9 +8,12 @@ from drf_spectacular.views import (
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.core.views import HealthCheckView
+from apps.core.views import HealthCheckView
+from apps.users.views import AdminUserListView
 
 api_v1 = [
     path("auth/", include("apps.users.urls")),
+    path("admin/users/", AdminUserListView.as_view(), name="admin-user-list"),
     path("", include("apps.products.urls")),
     path("", include("apps.cart.urls")),
     path("", include("apps.orders.urls")),
