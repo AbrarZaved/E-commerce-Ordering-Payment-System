@@ -87,6 +87,19 @@ class PaymentService:
     def verify(self, payment: Payment, payload: dict | None = None) -> Payment:
         result = self.strategy.verify(payment, payload)
         return self._apply_result(payment, result.status, result.raw, result.transaction_id)
+        
+    @transaction.atomic
+    def abandon(self, payment: Payment, *, failed: bool = False) -> Payment:
+        # Finalize a payment the customer did NOT complete.
+
+  
+        payment = Payment.objects.select_for_update().get(pk=payment.pk)
+        if payment.status == PaymentStatus.SUCCEEDED:
+            return payment
+        payment.status = PaymentStatus.FAILED if failed else PaymentStatus.CANCELED
+        payment.save(update_fields=["status", "updated_at"])
+        logger.info("payment %s finalized as %s (not completed)", payment.id, payment.status)
+        return payment
 
     @transaction.atomic
     def _apply_result(self, payment: Payment, status: str, raw: dict, transaction_id=None) -> Payment:

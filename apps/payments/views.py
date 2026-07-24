@@ -104,3 +104,19 @@ class PaymentVerifyView(APIView):
         service = PaymentService(payment.provider)
         payment = service.verify(payment)
         return Response(PaymentSerializer(payment).data)
+
+
+class PaymentCancelView(APIView):
+    # Finalize a payment the customer did not complete.
+
+
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        payment = get_object_or_404(_owned_payments(request.user), pk=pk)
+        raw = request.data.get("failed", request.query_params.get("failed", False))
+        failed = str(raw).lower() in ("1", "true", "yes")
+        service = PaymentService(payment.provider)
+        payment = service.abandon(payment, failed=failed)
+        return Response(PaymentSerializer(payment).data)
