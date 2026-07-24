@@ -1,4 +1,4 @@
-"""Category-tree building, DFS traversal, and Redis caching."""
+"""Category-tree building, DFS traversal, and Redis caching"""
 from __future__ import annotations
 
 import logging
@@ -52,10 +52,8 @@ def invalidate_category_tree_cache() -> None:
     logger.info("category tree cache invalidated")
 
 
-def dfs_descendant_category_ids(root: Category) -> list[int]:
-    # Depth-first traversal returning ``root`` and all descendant category ids.
-
-
+def descendant_category_ids(root_id: int) -> list[int]:
+    """Depth-first traversal returning ``root_id`` and all descendant ids"""
     edges = list(Category.objects.all().values_list("parent_id", "id"))
     children_map: dict[int | None, list[int]] = defaultdict(list)
     for parent_id, child_id in edges:
@@ -63,7 +61,7 @@ def dfs_descendant_category_ids(root: Category) -> list[int]:
 
     ordered: list[int] = []
     seen: set[int] = set()
-    stack: list[int] = [root.id]
+    stack: list[int] = [root_id]
     while stack:
         current = stack.pop()
         if current in seen:
@@ -75,6 +73,11 @@ def dfs_descendant_category_ids(root: Category) -> list[int]:
             if child_id not in seen:
                 stack.append(child_id)
     return ordered
+
+
+def dfs_descendant_category_ids(root: Category) -> list[int]:
+    """Backward-compatible wrapper that traverses from a ``Category`` instance."""
+    return descendant_category_ids(root.id)
 
 
 def recommended_products(product: Product, limit: int = 10) -> Iterable[Product]:

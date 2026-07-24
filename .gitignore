@@ -7,4 +7,5 @@ media/
 .pytest_cache/
 .venv/
 venv/
+myenv/
 .DS_Store
