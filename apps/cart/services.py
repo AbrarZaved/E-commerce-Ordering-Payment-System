@@ -97,7 +97,7 @@ def merge_items(user, items: list[dict]) -> Cart:
             continue
         existing = CartItem.objects.filter(cart=cart, product=product).first()
         current = existing.quantity if existing else 0
-        
+
         # Clamp the merged quantity to available stock. Skip non-positive lines
         merged = min(current + entry["quantity"], product.stock)
         if merged <= 0:
@@ -122,6 +122,5 @@ def checkout_cart(user):
         raise InvalidOrderState("Your cart is empty.")
     payload = [{"product_id": i.product_id, "quantity": i.quantity} for i in items]
     order = create_order(user, payload)
-    cart.items.all().delete()
     logger.info("cart checkout user=%s order=%s", user.id, order.id)
     return order

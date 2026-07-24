@@ -13,7 +13,7 @@ from django.db import transaction
 from apps.core.exceptions import InvalidOrderState, PaymentError
 from apps.orders.models import Order, OrderStatus
 from apps.orders.services import reduce_stock_for_order
-
+from apps.cart.services import clear_cart
 from .models import Payment, PaymentStatus
 from .strategies import get_strategy
 
@@ -78,6 +78,7 @@ class PaymentService:
             if order.status != OrderStatus.PAID:
                 reduce_stock_for_order(order)
                 order.mark_paid()
+                clear_cart(order.user)
                 logger.info("order %s marked paid via payment %s", order.id, payment.id)
         elif status == PaymentStatus.FAILED:
             logger.warning("payment %s failed", payment.id)
