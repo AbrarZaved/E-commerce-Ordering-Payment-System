@@ -39,7 +39,12 @@ class PaymentService:
         result = self.strategy.initiate(payment)
         payment.transaction_id = result.transaction_id
         payment.status = result.status
-        payment.raw_response = result.raw
+        raw = dict(result.raw or {})
+        if result.redirect_url:
+            raw["redirect_url"] = result.redirect_url
+        if result.client_secret:
+            raw["client_secret"] = result.client_secret
+        payment.raw_response = raw
         payment.save(update_fields=["transaction_id", "status", "raw_response", "updated_at"])
         logger.info("payment initiated id=%s provider=%s status=%s", payment.id, self.provider, payment.status)
         return payment

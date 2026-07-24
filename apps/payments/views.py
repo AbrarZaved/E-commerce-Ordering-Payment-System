@@ -79,7 +79,7 @@ class PaymentInitiateView(APIView):
         data = PaymentSerializer(payment).data
         # Surface the client action (redirect/secret) from the raw response.
         data["client_secret"] = payment.raw_response.get("client_secret")
-        data["redirect_url"] = payment.raw_response.get("bkashURL")
+        data["redirect_url"] = payment.raw_response.get("redirect_url")
         return Response(data, status=status.HTTP_201_CREATED)
 
 

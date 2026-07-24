@@ -1,12 +1,7 @@
-"""Stripe payment strategy.
-
-Uses the official ``stripe`` SDK when installed and configured. All network I/O
-is guarded so the code degrades gracefully in test/sandbox environments without
-credentials (returns a simulated intent) rather than crashing.
-"""
 from __future__ import annotations
-import uuid
+
 import logging
+import uuid
 from decimal import Decimal
 
 from django.conf import settings
@@ -32,7 +27,19 @@ _STRIPE_STATUS_MAP = {
     "requires_action": PaymentStatus.PENDING,
     "canceled": PaymentStatus.CANCELED,
 }
+def _to_plain_dict(obj) -> dict:
+    """Convert a Stripe response object into a plain ``dict``.
 
+    ``dict(stripe_object)`` is unreliable across stripe-python versions: for a
+    Checkout Session (which embeds list-shaped sub-objects) it raises
+    ``KeyError: 0``. ``to_dict_recursive()`` is the SDK's supported way to get a
+    JSON-serializable dict; fall back to ``to_dict()`` / ``dict()`` otherwise.
+    """
+    if hasattr(obj, "to_dict_recursive"):
+        return obj.to_dict_recursive()
+    if hasattr(obj, "to_dict"):
+        return dict(obj.to_dict())
+    return dict(obj)
 
 class StripeStrategy(PaymentStrategy):
     provider = "stripe"
@@ -44,6 +51,7 @@ class StripeStrategy(PaymentStrategy):
             raise PaymentError("STRIPE_API_KEY is not configured.")
         stripe.api_key = settings.STRIPE_API_KEY
         return stripe
+
     def _fake_enabled(self) -> bool:
         """Simulate Stripe when explicitly enabled or when unconfigured.
 
@@ -58,69 +66,92 @@ class StripeStrategy(PaymentStrategy):
             or key.endswith("xxx")
         )
 
+    # ---- Frontend return URLs -------------------------------------------------
+    def _success_url(self, payment) -> str:
+        base = settings.STRIPE_SUCCESS_URL or settings.FRONTEND_BASE_URL
+        return base + "?payment_id=" + str(payment.id) + "&status=success"
+
+    def _cancel_url(self, payment) -> str:
+        base = settings.STRIPE_CANCEL_URL or settings.FRONTEND_BASE_URL
+        return base + "?payment_id=" + str(payment.id) + "&status=cancel"
+
     def _fake_initiate(self, payment) -> PaymentResult:
-        txn = f"pi_sim_{uuid.uuid4().hex[:24]}"
-        logger.info("stripe SIMULATED intent payment=%s intent=%s", payment.id, txn)
+        """Simulate a hosted checkout by sending the browser straight to the
+        success return URL, so the demo completes without real Stripe."""
+        txn = "cs_sim_" + uuid.uuid4().hex[:24]
+        url = self._success_url(payment) + "&simulated=1"
+        logger.info("stripe SIMULATED session payment=%s session=%s", payment.id, txn)
         return PaymentResult(
             status=PaymentStatus.PENDING,
             transaction_id=txn,
-            client_secret=f"{txn}_secret_sim",
-            raw={"id": txn, "status": "requires_confirmation", "simulated": True},
+            redirect_url=url,
+            raw={"id": txn, "status": "open", "url": url, "simulated": True},
         )
 
     def _fake_succeeded(self, payment) -> PaymentResult:
-        txn = payment.transaction_id or f"pi_sim_{uuid.uuid4().hex[:24]}"
+        txn = payment.transaction_id or ("cs_sim_" + uuid.uuid4().hex[:24])
         return PaymentResult(
             status=PaymentStatus.SUCCEEDED,
             transaction_id=txn,
-            raw={"id": txn, "status": "succeeded", "simulated": True},
+            raw={"id": txn, "status": "complete", "payment_status": "paid", "simulated": True},
         )
+
     @staticmethod
     def _to_minor_units(amount: Decimal) -> int:
         return int((amount * 100).to_integral_value())
+
+    @staticmethod
+    def _status_from_session(raw: dict) -> str:
+        """Map a Stripe Checkout Session to our normalized PaymentStatus."""
+        if raw.get("payment_status") == "paid":
+            return PaymentStatus.SUCCEEDED
+        if raw.get("status") == "expired":
+            return PaymentStatus.CANCELED
+        return PaymentStatus.PENDING
 
     def initiate(self, payment) -> PaymentResult:
         if self._fake_enabled():
             return self._fake_initiate(payment)
         client = self._client()
-        intent = client.PaymentIntent.create(
-            amount=self._to_minor_units(payment.amount),
-            currency=settings.STRIPE_CURRENCY,
+        session = client.checkout.Session.create(
+            mode="payment",
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": settings.STRIPE_CURRENCY,
+                        "product_data": {"name": "Order #" + str(payment.order_id)},
+                        "unit_amount": self._to_minor_units(payment.amount),
+                    },
+                    "quantity": 1,
+                }
+            ],
             metadata={"order_id": payment.order_id, "payment_id": payment.id},
-            automatic_payment_methods={"enabled": True},
+            success_url=self._success_url(payment),
+            cancel_url=self._cancel_url(payment),
         )
-        raw = dict(intent)
-        logger.info("stripe intent created payment=%s intent=%s", payment.id, raw.get("id"))
+        raw = _to_plain_dict(session)
+        logger.info("stripe session created payment=%s session=%s", payment.id, raw.get("id"))
         return PaymentResult(
-            status=_STRIPE_STATUS_MAP.get(raw.get("status"), PaymentStatus.PENDING),
+            status=self._status_from_session(raw),
             transaction_id=raw.get("id"),
-            client_secret=raw.get("client_secret"),
+            redirect_url=raw.get("url"),
             raw=raw,
         )
 
     def confirm(self, payment, payload: dict) -> PaymentResult:
+        """Stripe Checkout has no separate confirm step; re-read session status."""
         if self._fake_enabled():
             return self._fake_succeeded(payment)
-        client = self._client()
-        intent = client.PaymentIntent.confirm(
-            payment.transaction_id,
-            payment_method=payload.get("payment_method", "pm_card_visa"),
-        )
-        raw = dict(intent)
-        return PaymentResult(
-            status=_STRIPE_STATUS_MAP.get(raw.get("status"), PaymentStatus.PENDING),
-            transaction_id=raw.get("id"),
-            raw=raw,
-        )
+        return self.verify(payment, payload)
 
     def verify(self, payment, payload: dict | None = None) -> PaymentResult:
         if self._fake_enabled():
             return self._fake_succeeded(payment)
         client = self._client()
-        intent = client.PaymentIntent.retrieve(payment.transaction_id)
-        raw = dict(intent)
+        session = client.checkout.Session.retrieve(payment.transaction_id)
+        raw = _to_plain_dict(session)
         return PaymentResult(
-            status=_STRIPE_STATUS_MAP.get(raw.get("status"), PaymentStatus.PENDING),
+            status=self._status_from_session(raw),
             transaction_id=raw.get("id"),
             raw=raw,
         )
@@ -135,21 +166,21 @@ class StripeStrategy(PaymentStrategy):
                 secret=settings.STRIPE_WEBHOOK_SECRET,
             )
         except Exception as exc:  # invalid signature / payload
-            raise PaymentError(f"Invalid Stripe webhook: {exc}") from exc
+            raise PaymentError("Invalid Stripe webhook: " + str(exc)) from exc
 
-        obj = dict(event["data"]["object"])
+        obj = _to_plain_dict(event["data"]["object"])
         event_type = event["type"]
         status = PaymentStatus.PENDING
-        if event_type == "payment_intent.succeeded":
+        if event_type in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
             status = PaymentStatus.SUCCEEDED
-        elif event_type == "payment_intent.payment_failed":
-            status = PaymentStatus.FAILED
-        elif event_type == "payment_intent.canceled":
+        elif event_type == "checkout.session.expired":
             status = PaymentStatus.CANCELED
+        elif event_type == "checkout.session.async_payment_failed":
+            status = PaymentStatus.FAILED
 
         return {
             "transaction_id": obj.get("id"),
             "status": status,
             "event_type": event_type,
-            "raw": dict(event),
+            "raw": _to_plain_dict(event),
         }
