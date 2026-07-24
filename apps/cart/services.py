@@ -99,17 +99,20 @@ def merge_items(user, items: list[dict]) -> Cart:
         product = products.get(entry["product_id"])
         if product is None:
             continue
-        item, created = CartItem.objects.get_or_create(
-            cart=cart, product=product, defaults={"quantity": 0}
-        )
-        merged = (0 if created else item.quantity) + entry["quantity"]
-        item.quantity = min(merged, product.stock) or 1
-        if item.quantity > product.stock:
-            item.quantity = product.stock
-        if item.quantity <= 0:
-            item.delete()
+        existing = CartItem.objects.filter(cart=cart, product=product).first()
+        current = existing.quantity if existing else 0
+        # Clamp the merged quantity to available stock. Skip non-positive lines
+        # so we never INSERT a row that violates the qty>0 check constraint.
+        merged = min(current + entry["quantity"], product.stock)
+        if merged <= 0:
+            if existing:
+                existing.delete()
             continue
-        item.save(update_fields=["quantity", "updated_at"])
+        if existing:
+            existing.quantity = merged
+            existing.save(update_fields=["quantity", "updated_at"])
+        else:
+            CartItem.objects.create(cart=cart, product=product, quantity=merged)
     logger.info("cart merge user=%s incoming=%s", user.id, len(items))
     return cart
 

@@ -1,12 +1,7 @@
-"""bKash (tokenized checkout) payment strategy.
-
-Implements the sandbox tokenized checkout flow: grant token -> create payment ->
-execute payment -> query payment. Network calls use ``requests`` and are guarded
-so missing credentials raise a clear PaymentError instead of crashing.
-"""
 from __future__ import annotations
 
 import logging
+import uuid
 
 from django.conf import settings
 
@@ -47,6 +42,38 @@ class BkashStrategy(PaymentStrategy):
         if missing:
             raise PaymentError(f"Missing bKash configuration: {', '.join(missing)}")
 
+    def _fake_enabled(self) -> bool:
+        """Simulate bKash when explicitly enabled or when unconfigured.
+
+        Placeholder values such as the sample "your_sandbox_app_key" also count
+        as unconfigured so the demo never crashes on a missing setup.
+        """
+        missing = [
+            key
+            for key in ("BKASH_APP_KEY", "BKASH_APP_SECRET", "BKASH_USERNAME", "BKASH_PASSWORD")
+            if not getattr(settings, key) or str(getattr(settings, key)).startswith("your_")
+        ]
+        return getattr(settings, "PAYMENTS_FAKE", False) or requests is None or bool(missing)
+
+    def _fake_initiate(self, payment) -> PaymentResult:
+        txn = f"TR{uuid.uuid4().hex[:10].upper()}"
+        url = "https://sandbox.bkash.local/checkout/" + txn
+        logger.info("bkash SIMULATED payment created payment=%s bkash_id=%s", payment.id, txn)
+        return PaymentResult(
+            status=PaymentStatus.PENDING,
+            transaction_id=txn,
+            redirect_url=url,
+            raw={"paymentID": txn, "transactionStatus": "Initiated", "bkashURL": url, "simulated": True},
+        )
+
+    def _fake_succeeded(self, payment) -> PaymentResult:
+        txn = payment.transaction_id or f"TR{uuid.uuid4().hex[:10].upper()}"
+        return PaymentResult(
+            status=PaymentStatus.SUCCEEDED,
+            transaction_id=txn,
+            raw={"paymentID": txn, "transactionStatus": "Completed", "simulated": True},
+        )
+
     def _grant_token(self) -> str:
         self._require()
         resp = requests.post(
@@ -76,13 +103,15 @@ class BkashStrategy(PaymentStrategy):
         }
 
     def initiate(self, payment) -> PaymentResult:
+        if self._fake_enabled():
+            return self._fake_initiate(payment)
         token = self._grant_token()
         resp = requests.post(
             f"{settings.BKASH_BASE_URL}/tokenized/checkout/create",
             json={
                 "mode": "0011",
                 "payerReference": str(payment.order_id),
-                "callbackURL": settings.__dict__.get("BKASH_CALLBACK_URL", ""),
+                "callbackURL": getattr(settings, "BKASH_CALLBACK_URL", ""),
                 "amount": str(payment.amount),
                 "currency": "BDT",
                 "intent": "sale",
@@ -105,6 +134,8 @@ class BkashStrategy(PaymentStrategy):
 
     def confirm(self, payment, payload: dict) -> PaymentResult:
         """Execute the payment after the customer authorizes it."""
+        if self._fake_enabled():
+            return self._fake_succeeded(payment)
         token = self._grant_token()
         resp = requests.post(
             f"{settings.BKASH_BASE_URL}/tokenized/checkout/execute",
@@ -120,6 +151,8 @@ class BkashStrategy(PaymentStrategy):
         )
 
     def verify(self, payment, payload: dict | None = None) -> PaymentResult:
+        if self._fake_enabled():
+            return self._fake_succeeded(payment)
         token = self._grant_token()
         resp = requests.post(
             f"{settings.BKASH_BASE_URL}/tokenized/checkout/payment/status",

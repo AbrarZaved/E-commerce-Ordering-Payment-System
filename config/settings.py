@@ -124,7 +124,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Redis / cache
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
-if env.bool("USE_LOCMEM_CACHE", default=False):
+if env.bool("USE_LOCMEM_CACHE", default=DEBUG):
     # Resilient local dev: no Redis required.
     CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 else:
@@ -202,7 +202,7 @@ BKASH_APP_SECRET = env("BKASH_APP_SECRET", default="")
 BKASH_USERNAME = env("BKASH_USERNAME", default="")
 BKASH_PASSWORD = env("BKASH_PASSWORD", default="")
 BKASH_WEBHOOK_SECRET = env("BKASH_WEBHOOK_SECRET", default="")
-
+PAYMENTS_FAKE = env.bool("PAYMENTS_FAKE", default=DEBUG)
 # ---- Email ----
 # Console backend in DEBUG; real SMTP otherwise. Override EMAIL_BACKEND to force.
 _default_email_backend = (

@@ -5,7 +5,7 @@ is guarded so the code degrades gracefully in test/sandbox environments without
 credentials (returns a simulated intent) rather than crashing.
 """
 from __future__ import annotations
-
+import uuid
 import logging
 from decimal import Decimal
 
@@ -44,12 +44,44 @@ class StripeStrategy(PaymentStrategy):
             raise PaymentError("STRIPE_API_KEY is not configured.")
         stripe.api_key = settings.STRIPE_API_KEY
         return stripe
+    def _fake_enabled(self) -> bool:
+        """Simulate Stripe when explicitly enabled or when unconfigured.
 
+        Lets the demo run end-to-end without a real Stripe key/SDK. Placeholder
+        keys such as the sample "sk_test_xxx" also count as unconfigured.
+        """
+        key = settings.STRIPE_API_KEY or ""
+        return (
+            getattr(settings, "PAYMENTS_FAKE", False)
+            or stripe is None
+            or not key
+            or key.endswith("xxx")
+        )
+
+    def _fake_initiate(self, payment) -> PaymentResult:
+        txn = f"pi_sim_{uuid.uuid4().hex[:24]}"
+        logger.info("stripe SIMULATED intent payment=%s intent=%s", payment.id, txn)
+        return PaymentResult(
+            status=PaymentStatus.PENDING,
+            transaction_id=txn,
+            client_secret=f"{txn}_secret_sim",
+            raw={"id": txn, "status": "requires_confirmation", "simulated": True},
+        )
+
+    def _fake_succeeded(self, payment) -> PaymentResult:
+        txn = payment.transaction_id or f"pi_sim_{uuid.uuid4().hex[:24]}"
+        return PaymentResult(
+            status=PaymentStatus.SUCCEEDED,
+            transaction_id=txn,
+            raw={"id": txn, "status": "succeeded", "simulated": True},
+        )
     @staticmethod
     def _to_minor_units(amount: Decimal) -> int:
         return int((amount * 100).to_integral_value())
 
     def initiate(self, payment) -> PaymentResult:
+        if self._fake_enabled():
+            return self._fake_initiate(payment)
         client = self._client()
         intent = client.PaymentIntent.create(
             amount=self._to_minor_units(payment.amount),
@@ -66,6 +98,8 @@ class StripeStrategy(PaymentStrategy):
         )
 
     def confirm(self, payment, payload: dict) -> PaymentResult:
+        if self._fake_enabled():
+            return self._fake_succeeded(payment)
         client = self._client()
         intent = client.PaymentIntent.confirm(
             payment.transaction_id,
@@ -78,6 +112,8 @@ class StripeStrategy(PaymentStrategy):
         )
 
     def verify(self, payment, payload: dict | None = None) -> PaymentResult:
+        if self._fake_enabled():
+            return self._fake_succeeded(payment)
         client = self._client()
         intent = client.PaymentIntent.retrieve(payment.transaction_id)
         return PaymentResult(
