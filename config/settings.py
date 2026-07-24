@@ -193,6 +193,7 @@ CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=DEBUG)
 
 # Payment provider config (never hardcode secrets)
 STRIPE_API_KEY = env("STRIPE_API_KEY", default="")
+STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY", default="")
 STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
 STRIPE_CURRENCY = env("STRIPE_CURRENCY", default="usd")
 

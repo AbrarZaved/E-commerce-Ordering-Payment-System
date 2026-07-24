@@ -89,12 +89,13 @@ class StripeStrategy(PaymentStrategy):
             metadata={"order_id": payment.order_id, "payment_id": payment.id},
             automatic_payment_methods={"enabled": True},
         )
-        logger.info("stripe intent created payment=%s intent=%s", payment.id, intent["id"])
+        raw = dict(intent)
+        logger.info("stripe intent created payment=%s intent=%s", payment.id, raw.get("id"))
         return PaymentResult(
-            status=_STRIPE_STATUS_MAP.get(intent["status"], PaymentStatus.PENDING),
-            transaction_id=intent["id"],
-            client_secret=intent.get("client_secret"),
-            raw=dict(intent),
+            status=_STRIPE_STATUS_MAP.get(raw.get("status"), PaymentStatus.PENDING),
+            transaction_id=raw.get("id"),
+            client_secret=raw.get("client_secret"),
+            raw=raw,
         )
 
     def confirm(self, payment, payload: dict) -> PaymentResult:
@@ -105,10 +106,11 @@ class StripeStrategy(PaymentStrategy):
             payment.transaction_id,
             payment_method=payload.get("payment_method", "pm_card_visa"),
         )
+        raw = dict(intent)
         return PaymentResult(
-            status=_STRIPE_STATUS_MAP.get(intent["status"], PaymentStatus.PENDING),
-            transaction_id=intent["id"],
-            raw=dict(intent),
+            status=_STRIPE_STATUS_MAP.get(raw.get("status"), PaymentStatus.PENDING),
+            transaction_id=raw.get("id"),
+            raw=raw,
         )
 
     def verify(self, payment, payload: dict | None = None) -> PaymentResult:
@@ -116,10 +118,11 @@ class StripeStrategy(PaymentStrategy):
             return self._fake_succeeded(payment)
         client = self._client()
         intent = client.PaymentIntent.retrieve(payment.transaction_id)
+        raw = dict(intent)
         return PaymentResult(
-            status=_STRIPE_STATUS_MAP.get(intent["status"], PaymentStatus.PENDING),
-            transaction_id=intent["id"],
-            raw=dict(intent),
+            status=_STRIPE_STATUS_MAP.get(raw.get("status"), PaymentStatus.PENDING),
+            transaction_id=raw.get("id"),
+            raw=raw,
         )
 
     def parse_webhook(self, request) -> dict:
@@ -134,7 +137,7 @@ class StripeStrategy(PaymentStrategy):
         except Exception as exc:  # invalid signature / payload
             raise PaymentError(f"Invalid Stripe webhook: {exc}") from exc
 
-        obj = event["data"]["object"]
+        obj = dict(event["data"]["object"])
         event_type = event["type"]
         status = PaymentStatus.PENDING
         if event_type == "payment_intent.succeeded":

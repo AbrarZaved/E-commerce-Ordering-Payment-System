@@ -1,25 +1,48 @@
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.orders.models import Order
 
-from .models import Payment
+from .models import Payment, PaymentProvider
 from .serializers import (
     ConfirmPaymentSerializer,
     InitiatePaymentSerializer,
     PaymentSerializer,
 )
 from .service import PaymentService
+from .strategies import get_strategy
 
 
 def _owned_payments(user):
     """Payments belonging to the requesting user's own orders."""
     return Payment.objects.filter(order__user=user).select_related("order")
 
+class PaymentConfigView(APIView):
+    """Public payment configuration for the browser (e.g. Stripe publishable key).
 
+    The frontend calls this before checkout to decide whether to mount a real
+    Stripe.js card field or fall back to the simulated flow.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        stripe_strategy = get_strategy(PaymentProvider.STRIPE)
+        return Response(
+            {
+                "stripe": {
+                    "publishable_key": settings.STRIPE_PUBLISHABLE_KEY,
+                    "currency": settings.STRIPE_CURRENCY,
+                    # True => no real key configured; browser should skip Stripe.js
+                    # and let the backend simulate the charge instead.
+                    "simulated": stripe_strategy._fake_enabled(),
+                }
+            }
+        )
 class PaymentListView(APIView):
     """List the current user's payments."""
 
