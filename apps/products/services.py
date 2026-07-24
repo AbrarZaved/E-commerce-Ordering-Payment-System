@@ -1,9 +1,4 @@
-"""Category-tree building, DFS traversal, and Redis caching.
-
-The category tree is expensive to rebuild on every request, so we build it once
-and cache the serialized structure in Redis. Any category mutation invalidates
-the cache via signals (see ``signals.py``).
-"""
+"""Category-tree building, DFS traversal, and Redis caching."""
 from __future__ import annotations
 
 import logging
@@ -58,11 +53,9 @@ def invalidate_category_tree_cache() -> None:
 
 
 def dfs_descendant_category_ids(root: Category) -> list[int]:
-    """Depth-first traversal returning ``root`` and all descendant category ids.
+    # Depth-first traversal returning ``root`` and all descendant category ids.
 
-    Uses an explicit stack (no recursion limit risk) and a single query to load
-    all edges, so traversal is O(V + E) with one DB round-trip.
-    """
+
     edges = list(Category.objects.all().values_list("parent_id", "id"))
     children_map: dict[int | None, list[int]] = defaultdict(list)
     for parent_id, child_id in edges:
@@ -85,12 +78,8 @@ def dfs_descendant_category_ids(root: Category) -> list[int]:
 
 
 def recommended_products(product: Product, limit: int = 10) -> Iterable[Product]:
-    """Recommend related products via DFS over the product's category subtree.
+    # Recommending related products via DFS over the product's category subtree.
 
-    Strategy: walk the product's category and all of its descendant categories
-    (depth-first), and surface other active, in-stock products from that subtree,
-    ordered by proximity (same category first) then recency.
-    """
     if product.category is None:
         return Product.objects.none()
 

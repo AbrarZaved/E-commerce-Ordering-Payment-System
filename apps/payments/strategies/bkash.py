@@ -43,11 +43,9 @@ class BkashStrategy(PaymentStrategy):
             raise PaymentError(f"Missing bKash configuration: {', '.join(missing)}")
 
     def _fake_enabled(self) -> bool:
-        """Simulate bKash when explicitly enabled or when unconfigured.
+        #Simulating bKash when explicitly enabled or when unconfigured.
 
-        Placeholder values such as the sample "your_sandbox_app_key" also count
-        as unconfigured so the demo never crashes on a missing setup.
-        """
+  
         missing = [
             key
             for key in ("BKASH_APP_KEY", "BKASH_APP_SECRET", "BKASH_USERNAME", "BKASH_PASSWORD")
@@ -101,7 +99,12 @@ class BkashStrategy(PaymentStrategy):
             "X-APP-Key": settings.BKASH_APP_KEY,
             "Content-Type": "application/json",
         }
+    def _callback_url(self, payment) -> str:
+        #Frontend URL bKash redirects back to after the customer authorizes"
 
+        base = getattr(settings, "BKASH_CALLBACK_URL", "") or settings.FRONTEND_BASE_URL
+        return base + "?payment_id=" + str(payment.id) + "&provider=bkash"
+    
     def initiate(self, payment) -> PaymentResult:
         if self._fake_enabled():
             return self._fake_initiate(payment)
@@ -111,7 +114,7 @@ class BkashStrategy(PaymentStrategy):
             json={
                 "mode": "0011",
                 "payerReference": str(payment.order_id),
-                "callbackURL": getattr(settings, "BKASH_CALLBACK_URL", ""),
+                "callbackURL": self._callback_url(payment),
                 "amount": str(payment.amount),
                 "currency": "BDT",
                 "intent": "sale",

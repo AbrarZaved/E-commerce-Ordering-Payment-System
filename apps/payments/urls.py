@@ -10,7 +10,6 @@ from .views import (
 )
 urlpatterns = [
     path("payments/", PaymentListView.as_view(), name="payment-list"),
-    # Static routes must precede the <int:pk> route.
     path("payments/config/", PaymentConfigView.as_view(), name="payment-config"),
     path("payments/initiate/", PaymentInitiateView.as_view(), name="payment-initiate"),
     path("payments/confirm/", PaymentConfirmView.as_view(), name="payment-confirm"),

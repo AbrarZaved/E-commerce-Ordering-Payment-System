@@ -28,13 +28,8 @@ _STRIPE_STATUS_MAP = {
     "canceled": PaymentStatus.CANCELED,
 }
 def _to_plain_dict(obj) -> dict:
-    """Convert a Stripe response object into a plain ``dict``.
-
-    ``dict(stripe_object)`` is unreliable across stripe-python versions: for a
-    Checkout Session (which embeds list-shaped sub-objects) it raises
-    ``KeyError: 0``. ``to_dict_recursive()`` is the SDK's supported way to get a
-    JSON-serializable dict; fall back to ``to_dict()`` / ``dict()`` otherwise.
-    """
+    #Converting a Stripe response object into a plain ``dict``
+    
     if hasattr(obj, "to_dict_recursive"):
         return obj.to_dict_recursive()
     if hasattr(obj, "to_dict"):

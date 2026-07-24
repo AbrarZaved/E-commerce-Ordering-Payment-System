@@ -8,13 +8,7 @@ from apps.products.models import Product
 
 
 class Cart(TimeStampedModel):
-    """A persistent, per-user shopping cart.
-
-    One active cart per user (``OneToOne``) so it is restored automatically on
-    the next login from any device. The cart is intentionally separate from
-    ``Order``: it holds *intent* and never reserves stock. Stock is only
-    validated on mutation and reduced during the paid-order transaction.
-    """
+    """A persistent, per-user shopping cart"""
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,

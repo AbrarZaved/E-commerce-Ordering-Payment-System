@@ -15,12 +15,8 @@ logger = logging.getLogger(__name__)
 
 @transaction.atomic
 def create_order(user, items: list[dict]) -> Order:
-    """Create a pending order.
+    # Creating a pending order.
 
-    ``items`` is a list of ``{"product_id": int, "quantity": int}``. Stock is
-    validated (not yet reduced) here; stock reduction happens only after payment
-    success (see ``payments.service``).
-    """
     order = Order.objects.create(user=user, status=OrderStatus.PENDING)
 
     product_ids = [item["product_id"] for item in items]
@@ -49,11 +45,8 @@ def create_order(user, items: list[dict]) -> Order:
 
 @transaction.atomic
 def reduce_stock_for_order(order: Order) -> None:
-    """Safely reduce stock for a paid order using row locks.
+    # Safely reducing stock for a paid order using row locks.
 
-    Uses ``select_for_update()`` to prevent race conditions when multiple
-    concurrent orders compete for the same inventory.
-    """
     for item in order.items.select_related("product"):
         product = Product.objects.select_for_update().get(pk=item.product_id)
         if item.quantity > product.stock:

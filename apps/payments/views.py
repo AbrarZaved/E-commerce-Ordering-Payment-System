@@ -22,11 +22,9 @@ def _owned_payments(user):
     return Payment.objects.filter(order__user=user).select_related("order")
 
 class PaymentConfigView(APIView):
-    """Public payment configuration for the browser (e.g. Stripe publishable key).
+    # Public payment configuration for the browser (e.g. Stripe publishable key).
 
-    The frontend calls this before checkout to decide whether to mount a real
-    Stripe.js card field or fall back to the simulated flow.
-    """
+
 
     permission_classes = [AllowAny]
 

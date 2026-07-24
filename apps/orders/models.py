@@ -33,10 +33,7 @@ class Order(TimeStampedModel):
         return f"Order #{self.pk} ({self.status})"
 
     def calculate_total(self) -> Decimal:
-        """Deterministic, side-effect-free total from related order items.
-
-        Kept as a model method (not inline view logic) so it is unit-testable.
-        """
+        """Deterministic, side-effect-free total from related order items"""
         total = sum((item.subtotal for item in self.items.all()), Decimal("0.00"))
         return total.quantize(Decimal("0.01"))
 

@@ -6,12 +6,7 @@ from .managers import UserManager
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    """Custom user keyed by a unique email instead of a username.
-
-    We extend ``AbstractBaseUser`` (rather than ``AbstractUser``) because the
-    assessment requires email-based authentication with no username field, and
-    a clean, minimal identity model. See README design-decisions section.
-    """
+    """Custom user keyed by a unique email instead of a username."""
 
     email = models.EmailField("email address", unique=True)
     full_name = models.CharField(max_length=255, blank=True)

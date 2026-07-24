@@ -35,7 +35,7 @@ class InvalidOrderState(ServiceError):
 
 
 def api_exception_handler(exc, context):
-    """Wrap DRF's default handler to produce a consistent error envelope.
+    """Wrapping DRF's default handler to produce a consistent error envelope.
 
     Response shape::
 

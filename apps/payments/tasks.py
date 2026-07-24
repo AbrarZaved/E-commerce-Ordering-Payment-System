@@ -8,11 +8,9 @@ logger = logging.getLogger(__name__)
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=10)
 def process_webhook_event(self, provider: str, payload: dict):
-    """Process a pre-validated webhook payload asynchronously.
+    # Processing a pre-validated webhook payload asynchronously.
 
-    The webhook view validates the signature synchronously (fast) and defers the
-    heavier state transition here so providers get a quick 200 response.
-    """
+
     from .models import Payment
     from .service import PaymentService
 

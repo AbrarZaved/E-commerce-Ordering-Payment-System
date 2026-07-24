@@ -83,11 +83,7 @@ def clear_cart(user) -> Cart:
 
 @transaction.atomic
 def merge_items(user, items: list[dict]) -> Cart:
-    """Merge a guest (client-side) cart into the user's server cart on login.
-
-    Quantities are added to any existing lines and clamped to available stock
-    so a stale guest cart can never block login/merge.
-    """
+    """Merging a guest (client-side) cart into the user's server cart on login"""
     cart = get_or_create_cart(user)
     products = {
         p.id: p
@@ -101,8 +97,8 @@ def merge_items(user, items: list[dict]) -> Cart:
             continue
         existing = CartItem.objects.filter(cart=cart, product=product).first()
         current = existing.quantity if existing else 0
+        
         # Clamp the merged quantity to available stock. Skip non-positive lines
-        # so we never INSERT a row that violates the qty>0 check constraint.
         merged = min(current + entry["quantity"], product.stock)
         if merged <= 0:
             if existing:
