@@ -4,8 +4,6 @@
 contains ZERO provider-specific branching. Adding a provider requires only a new
 strategy class + registry entry.
 """
-from django.contrib.auth import base_user
-from django.contrib.auth import base_user
 from __future__ import annotations
 
 import logging
