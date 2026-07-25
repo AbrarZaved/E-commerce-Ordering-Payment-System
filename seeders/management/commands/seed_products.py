@@ -20,16 +20,16 @@ CATEGORY_TREE = {
 PRODUCTS = [
     ("Ultrabook Pro 14", "LAP-001", "Laptops", "1599.00", 12),
     ("Budget Notebook 15", "LAP-002", "Laptops", "749.00", 25),
-    ("USB-C Hub 7-in-1", "ACC-001", "Accessories", "49.99", 100),
-    ("Wireless Mouse", "ACC-002", "Accessories", "24.50", 200),
+    ("USB-C Hub 7-in-1", "ACC-001", "Accessories", "149.99", 100),
+    ("Wireless Mouse", "ACC-002", "Accessories", "124.50", 200),
     ("Mechanical Keyboard", "ACC-003", "Accessories", "89.00", 60),
     ("Smartphone X", "PHN-001", "Phones", "999.00", 40),
     ("Smartphone Lite", "PHN-002", "Phones", "399.00", 80),
-    ("Chef's Knife 8in", "KIT-001", "Kitchen", "59.00", 45),
-    ("Nonstick Pan Set", "KIT-002", "Kitchen", "79.00", 30),
+    ("Chef's Knife 8in", "KIT-001", "Kitchen", "159.00", 45),
+    ("Nonstick Pan Set", "KIT-002", "Kitchen", "279.00", 30),
     ("Ergonomic Chair", "FUR-001", "Furniture", "229.00", 15),
     ("Standing Desk", "FUR-002", "Furniture", "349.00", 10),
-    ("Laptop Sleeve 14in", "ACC-004", "Accessories", "19.99", 150),
+    ("Laptop Sleeve 14in", "ACC-004", "Accessories", "119.99", 150),
     ("Noise-Cancelling Headphones", "ACC-005", "Accessories", "199.00", 35),
 ]
 

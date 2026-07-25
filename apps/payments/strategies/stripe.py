@@ -107,31 +107,36 @@ class StripeStrategy(PaymentStrategy):
     def initiate(self, payment) -> PaymentResult:
         if self._fake_enabled():
             return self._fake_initiate(payment)
-        client = self._client()
-        session = client.checkout.Session.create(
-            mode="payment",
-            line_items=[
-                {
-                    "price_data": {
-                        "currency": settings.STRIPE_CURRENCY,
-                        "product_data": {"name": "Payment #" + str(payment.id)},
-                        "unit_amount": self._to_minor_units(payment.amount),
-                    },
-                    "quantity": 1,
-                }
-            ],
-            metadata={"payment_id": payment.id},
-            success_url=self._success_url(payment),
-            cancel_url=self._cancel_url(payment),
-        )
-        raw = _to_plain_dict(session)
-        logger.info("stripe session created payment=%s session=%s", payment.id, raw.get("id"))
-        return PaymentResult(
-            status=self._status_from_session(raw),
-            transaction_id=raw.get("id"),
-            redirect_url=raw.get("url"),
-            raw=raw,
-        )
+        try:
+            client = self._client()
+            session = client.checkout.Session.create(
+                mode="payment",
+                line_items=[
+                    {
+                        "price_data": {
+                            "currency": settings.STRIPE_CURRENCY,
+                            "product_data": {"name": "Payment #" + str(payment.id)},
+                            "unit_amount": self._to_minor_units(payment.amount),
+                        },
+                        "quantity": 1,
+                    }
+                ],
+                metadata={"payment_id": payment.id},
+                success_url=self._success_url(payment),
+                cancel_url=self._cancel_url(payment),
+            )
+            raw = _to_plain_dict(session)
+            logger.info("stripe session created payment=%s session=%s", payment.id, raw.get("id"))
+            return PaymentResult(
+                status=self._status_from_session(raw),
+                transaction_id=raw.get("id"),
+                redirect_url=raw.get("url"),
+                raw=raw,
+            )
+        except Exception as exc:
+            logger.error("stripe initiate error payment=%s error=%s", payment.id, exc)
+            message = getattr(exc, "user_message", None) or str(exc)
+            raise PaymentError(message) from exc
 
     def confirm(self, payment, payload: dict) -> PaymentResult:
         """Stripe Checkout has no separate confirm step; re-read session status."""
@@ -142,14 +147,19 @@ class StripeStrategy(PaymentStrategy):
     def verify(self, payment, payload: dict | None = None) -> PaymentResult:
         if self._fake_enabled():
             return self._fake_succeeded(payment)
-        client = self._client()
-        session = client.checkout.Session.retrieve(payment.transaction_id)
-        raw = _to_plain_dict(session)
-        return PaymentResult(
-            status=self._status_from_session(raw),
-            transaction_id=raw.get("id"),
-            raw=raw,
-        )
+        try:
+            client = self._client()
+            session = client.checkout.Session.retrieve(payment.transaction_id)
+            raw = _to_plain_dict(session)
+            return PaymentResult(
+                status=self._status_from_session(raw),
+                transaction_id=raw.get("id"),
+                raw=raw,
+            )
+        except Exception as exc:
+            logger.error("stripe verify error payment=%s error=%s", payment.id, exc)
+            message = getattr(exc, "user_message", None) or str(exc)
+            raise PaymentError(message) from exc
 
     def parse_webhook(self, request) -> dict:
         client = self._client()
