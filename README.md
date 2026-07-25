@@ -2,6 +2,8 @@
 
 A Django REST Framework backend for an e-commerce ordering and payment platform. It exposes an API-only service for catalog browsing with hierarchical categories, cart and order management, concurrency-safe stock handling, and payment processing. Payments are built on the Strategy pattern with Stripe and bKash support, and product recommendations are derived from a depth-first traversal of the category tree cached in Redis.
 
+# Frontend Link: https://ecommerce-payment-eight.vercel.app/
+
 ---
 
 # Project Overview
