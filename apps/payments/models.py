@@ -43,6 +43,7 @@ class Payment(TimeStampedModel):
         default=PaymentStatus.INITIATED,
     )
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    expires_at = models.DateTimeField(null=True, blank=True)
     raw_response = models.JSONField(default=dict, blank=True)
 
     class Meta:

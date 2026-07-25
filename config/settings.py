@@ -148,6 +148,19 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=DEBUG)
 CELERY_TASK_EAGER_PROPAGATES = True
 
+# ---- Payment expiry ----
+# How long a payment may remain pending before it is automatically failed.
+PAYMENT_PENDING_TIMEOUT_MINUTES = env.int("PAYMENT_PENDING_TIMEOUT_MINUTES", default=30)
+
+# Celery beat: sweep stale pending payments once a minute (safety net in case a
+# per-payment countdown task is lost on worker restart).
+CELERY_BEAT_SCHEDULE = {
+    "expire-stale-payments": {
+        "task": "apps.payments.tasks.expire_stale_payments",
+        "schedule": 60.0,
+    },
+}
+
 # DRF
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (

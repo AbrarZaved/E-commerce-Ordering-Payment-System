@@ -2,15 +2,20 @@ from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Payment, PaymentProvider
+from apps.core.pagination import DefaultPagination
+from apps.orders.models import Order, OrderStatus
+
+from .models import Payment, PaymentProvider, PaymentStatus
 from .serializers import (
+    AdminPaymentSerializer,
     ConfirmPaymentSerializer,
     InitiatePaymentSerializer,
     PaymentSerializer,
+    ResumePaymentSerializer,
 )
 from .service import PaymentService
 from .strategies import get_strategy
@@ -120,3 +125,50 @@ class PaymentCancelView(APIView):
         service = PaymentService(payment.provider)
         payment = service.abandon(payment, failed=failed)
         return Response(PaymentSerializer(payment).data)
+
+
+class PaymentResumeView(APIView):
+    """Resume checkout for one of the user's pending orders."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ResumePaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        order = get_object_or_404(
+            Order.objects.filter(user=request.user),
+            pk=serializer.validated_data["order_id"],
+        )
+        if order.status != OrderStatus.PENDING:
+            return Response(
+                {"error": {"message": "Only pending orders can be resumed."}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        provider = serializer.validated_data.get("provider")
+        if not provider:
+            last_payment = order.payments.order_by("-created_at").first()
+            provider = last_payment.provider if last_payment else PaymentProvider.STRIPE
+        service = PaymentService(provider)
+        payment = service.resume(order)
+        data = PaymentSerializer(payment).data
+        data["client_secret"] = payment.raw_response.get("client_secret")
+        data["redirect_url"] = payment.raw_response.get("redirect_url")
+        return Response(data, status=status.HTTP_201_CREATED)
+
+
+class AdminPaymentListView(APIView):
+    """Staff-only: list every payment (paid, pending, failed, canceled) with
+    the customer's details for the admin panel."""
+
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        payments = Payment.objects.select_related("user", "order").all()
+        status_param = request.query_params.get("status")
+        if status_param:
+            payments = payments.filter(status=status_param)
+        paginator = DefaultPagination()
+        page = paginator.paginate_queryset(payments, request, view=self)
+        return paginator.get_paginated_response(
+            AdminPaymentSerializer(page, many=True).data
+        )

@@ -48,5 +48,18 @@ services:
       - web
       - redis
 
+  beat:
+    build: .
+    command: ["celery", "-A", "config", "beat", "-l", "info"]
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      CELERY_TASK_ALWAYS_EAGER: "False"
+    depends_on:
+      - web
+      - redis
+
 volumes:
   pgdata:

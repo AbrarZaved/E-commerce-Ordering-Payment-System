@@ -2,22 +2,36 @@
 
 ``PaymentService`` selects a strategy at runtime based on ``provider`` and
 contains ZERO provider-specific branching. Adding a provider requires only a new
-strategy class + registry entry (see ``strategies/__init__.py``).
+strategy class + registry entry.
 """
+from django.contrib.auth import base_user
+from django.contrib.auth import base_user
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from apps.core.exceptions import InvalidOrderState, PaymentError
 from apps.orders.models import Order, OrderStatus
-from apps.orders.services import reduce_stock_for_order
-from apps.cart.services import clear_cart
+from apps.orders.services import create_order, create_paid_order, reduce_stock_for_order
+from apps.cart.services import snapshot_cart
 from .models import Payment, PaymentStatus
 from .strategies import get_strategy
 
 logger = logging.getLogger(__name__)
+
+# Terminal payment states that must never be transitioned again.
+_FINAL_STATUSES = (PaymentStatus.SUCCEEDED, PaymentStatus.FAILED, PaymentStatus.CANCELED)
+
+
+def pending_timeout() -> timedelta:
+    """How long a payment may stay pending before auto-failing."""
+    minutes = getattr(settings, "PAYMENT_PENDING_TIMEOUT_MINUTES", 30)
+    return timedelta(minutes=minutes)
 
 
 class PaymentService:
@@ -25,9 +39,9 @@ class PaymentService:
         self.provider = provider
         self.strategy = get_strategy(provider)
 
-
     @transaction.atomic
     def initiate(self, order: Order) -> Payment:
+        """Initiate payment for an existing pending order."""
         if order.status != OrderStatus.PENDING:
             raise InvalidOrderState("Only pending orders can be paid.")
 
@@ -37,37 +51,71 @@ class PaymentService:
             provider=self.provider,
             amount=order.total_amount,
             status=PaymentStatus.INITIATED,
+            expires_at=timezone.now() + pending_timeout(),
         )
         return self._run_strategy_initiate(payment)
+    
+    @transaction.atomic
+    def resume(self, order: Order) -> Payment:
+        # Re-open checkout for a pending order by starting a fresh attempt.
+
+        if order.status != OrderStatus.PENDING:
+            raise InvalidOrderState("Only pending orders can be resumed.")
+        order.payments.filter(
+            status__in=[PaymentStatus.INITIATED, PaymentStatus.PENDING]
+        ).update(status=PaymentStatus.CANCELED)
+        return self.initiate(order)
 
     @transaction.atomic
     def initiate_from_cart(self, user) -> Payment:
-        """Initiate a payment straight from the user's cart WITHOUT creating an
-        order first.
+        """Create a PENDING order from the user's cart up front, then initiate
+        payment.
 
-        The order is recorded only if/when the payment succeeds (see
-        ``_apply_result``), so a failed or abandoned checkout never leaves a
-        pending order behind.
+        Creating the order immediately means ``order_id`` is persisted for
+        pending and cancelled payments too. Stock is still only reduced when the
+        payment succeeds.
         """
-        from apps.cart.services import snapshot_cart
 
-        snapshot, amount = snapshot_cart(user)
+    # Cancel any lingering pending checkout for this user before starting a
+    # fresh one (the cart still holds the items, so the old order is stale).
+        self._supersede_open_checkouts(user)
+
+        snapshot, _amount = snapshot_cart(user)
+        order = create_order(user, snapshot)  # status=pending, no stock change
+
         payment = Payment.objects.create(
+            order=order,    
             user=user,
             provider=self.provider,
-            amount=amount,
+            amount=order.total_amount,
             items_snapshot=snapshot,
             status=PaymentStatus.INITIATED,
+            expires_at=timezone.now() + pending_timeout(),
         )
         return self._run_strategy_initiate(payment)
+    def _supersede_open_checkouts(self, user, keep_order_id=None):
+        # Cancel a user's other lingering PENDING orders + their open payments.
+        stale_orders = Order.objects.select_for_update().filter(
+            user=user, status=OrderStatus.PENDING
+        )
+        if keep_order_id is not None:
+            stale_orders = stale_orders.exclude(pk=keep_order_id)
+        for order in stale_orders:
+            # Cancel still-open payments first so a lost countdown/webhook can't
+            # later flip the now-cancelled order.
+            Payment.objects.filter(
+                order=order,
+                status__in=[PaymentStatus.INITIATED, PaymentStatus.PENDING],
+            ).update(status=PaymentStatus.CANCELED)
+            order.mark_canceled()
+            logger.info(
+                "superseded stale pending order %s for user %s", order.id, user.id
+            )               
 
     def _run_strategy_initiate(self, payment: Payment) -> Payment:
         result = self.strategy.initiate(payment)
         payment.transaction_id = result.transaction_id
         payment.status = result.status
-        # Persist the provider payload plus normalized client-action fields so the
-        # API layer can surface a redirect URL / client secret with no provider
-        # branching (works for Stripe Checkout, bKash, and any future provider).
         raw = dict(result.raw or {})
         if result.redirect_url:
             raw["redirect_url"] = result.redirect_url
@@ -75,7 +123,27 @@ class PaymentService:
             raw["client_secret"] = result.client_secret
         payment.raw_response = raw
         payment.save(update_fields=["transaction_id", "status", "raw_response", "updated_at"])
-        logger.info("payment initiated id=%s provider=%s status=%s", payment.id, self.provider, payment.status)
+
+        # Schedule an automatic expiry once the surrounding transaction commits.
+        payment_id = payment.id
+        countdown = max(int(pending_timeout().total_seconds()), 0)
+
+        def _schedule_expiry():
+            from .tasks import expire_pending_payment
+
+            # In eager mode (local dev) apply_async runs immediately and ignores
+            # countdown, which would fail the payment instantly -- skip it there
+            # and rely on the periodic beat sweep instead.
+            if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+                return
+            expire_pending_payment.apply_async(args=[payment_id], countdown=countdown)
+
+        transaction.on_commit(_schedule_expiry)
+
+        logger.info(
+            "payment initiated id=%s provider=%s status=%s order=%s",
+            payment.id, self.provider, payment.status, payment.order_id,
+        )
         return payment
 
     @transaction.atomic
@@ -87,25 +155,32 @@ class PaymentService:
     def verify(self, payment: Payment, payload: dict | None = None) -> Payment:
         result = self.strategy.verify(payment, payload)
         return self._apply_result(payment, result.status, result.raw, result.transaction_id)
-        
+
     @transaction.atomic
     def abandon(self, payment: Payment, *, failed: bool = False) -> Payment:
-        # Finalize a payment the customer did NOT complete.
-
-  
+        """Finalize a payment the customer did NOT complete."""
         payment = Payment.objects.select_for_update().get(pk=payment.pk)
         if payment.status == PaymentStatus.SUCCEEDED:
             return payment
-        payment.status = PaymentStatus.FAILED if failed else PaymentStatus.CANCELED
-        payment.save(update_fields=["status", "updated_at"])
-        logger.info("payment %s finalized as %s (not completed)", payment.id, payment.status)
-        return payment
+        new_status = PaymentStatus.FAILED if failed else PaymentStatus.CANCELED
+        return self._apply_result(payment, new_status, payment.raw_response or {})
+
+    @transaction.atomic
+    def expire(self, payment: Payment) -> Payment:
+        """Fail a still-pending payment that has exceeded its timeout."""
+        payment = Payment.objects.select_for_update().get(pk=payment.pk)
+        if payment.status in _FINAL_STATUSES:
+            return payment
+        raw = dict(payment.raw_response or {})
+        raw["expired_reason"] = "pending_timeout"
+        return self._apply_result(payment, PaymentStatus.FAILED, raw)
 
     @transaction.atomic
     def _apply_result(self, payment: Payment, status: str, raw: dict, transaction_id=None) -> Payment:
         """Apply a normalized strategy result and drive the order state machine."""
         payment = Payment.objects.select_for_update().get(pk=payment.pk)
         already_succeeded = payment.status == PaymentStatus.SUCCEEDED
+        already_final = payment.status in _FINAL_STATUSES
 
         payment.status = status
         if transaction_id:
@@ -114,33 +189,31 @@ class PaymentService:
             payment.raw_response = raw
         payment.save(update_fields=["status", "transaction_id", "raw_response", "updated_at"])
 
-        # Idempotency: only transition the order + reduce stock once.
         if status == PaymentStatus.SUCCEEDED and not already_succeeded:
             from apps.cart.services import clear_cart
 
             if payment.order_id is None:
-                # Deferred storefront flow: create the order ONLY now that the
-                # payment has succeeded, so no pending order is ever recorded for
-                # a failed or abandoned checkout.
-                from apps.orders.services import create_paid_order
-
+                # Fallback for the legacy deferred flow (no pre-created order).
                 order = create_paid_order(payment.user, payment.items_snapshot)
                 payment.order = order
                 payment.save(update_fields=["order", "updated_at"])
-                clear_cart(payment.user)
-                logger.info("order %s created + paid via deferred payment %s", order.id, payment.id)
             else:
-                # Order-based flow (a pending order was pre-created): mark it paid.
                 order = Order.objects.select_for_update().get(pk=payment.order_id)
                 if order.status != OrderStatus.PAID:
                     reduce_stock_for_order(order)
                     order.mark_paid()
-                    # Empty the cart only now that payment has succeeded, so a
-                    # failed/cancelled/abandoned payment leaves the cart for a retry.
-                    clear_cart(order.user)
-                    logger.info("order %s marked paid via payment %s", order.id, payment.id)
-        elif status == PaymentStatus.FAILED:
-            logger.warning("payment %s failed", payment.id)
+            clear_cart(payment.user)
+            logger.info("order %s marked paid via payment %s", payment.order_id, payment.id)
+
+        elif status in (PaymentStatus.FAILED, PaymentStatus.CANCELED) and not already_final:
+            # Release the still-pending order (no stock was ever reduced).
+            if payment.order_id:
+                order = Order.objects.select_for_update().get(pk=payment.order_id)
+                if order.status == OrderStatus.PENDING:
+                    order.mark_canceled()
+            logger.warning(
+                "payment %s -> %s; order %s cancelled", payment.id, status, payment.order_id
+            )
 
         return payment
 

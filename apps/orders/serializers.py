@@ -22,11 +22,15 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
+    full_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
-        fields = ("id", "user", "status", "total_amount", "items", "created_at", "updated_at")
+        fields = ("id", "user", "full_name", "status", "total_amount", "items", "created_at", "updated_at")
         read_only_fields = fields
+
+    def get_full_name(self, obj):
+        return f"{obj.user.full_name}"
 
 
 class OrderCreateSerializer(serializers.Serializer):
