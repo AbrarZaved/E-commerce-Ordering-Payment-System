@@ -78,4 +78,6 @@ class OrderItem(TimeStampedModel):
     @property
     def subtotal(self) -> Decimal:
         """Deterministic line subtotal = price * quantity."""
+        if self.price is None or self.quantity is None:
+            return Decimal("0.00")
         return (self.price * self.quantity).quantize(Decimal("0.01"))

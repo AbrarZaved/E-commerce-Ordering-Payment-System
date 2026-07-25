@@ -5,7 +5,8 @@ validates the provider signature before anything is trusted.
 """
 import logging
 
-from rest_framework import status
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -32,6 +33,12 @@ class StripeWebhookView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        tags=["Webhooks"],
+        summary="Stripe provider webhook (signature verified)",
+        request=serializers.DictField(),
+        responses={200: inline_serializer("WebhookResponse", {"received": serializers.BooleanField()})},
+    )
     def post(self, request):
         return _dispatch(PaymentProvider.STRIPE, request)
 
@@ -40,5 +47,11 @@ class BkashWebhookView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        tags=["Webhooks"],
+        summary="bKash provider webhook (signature verified)",
+        request=serializers.DictField(),
+        responses={200: inline_serializer("BkashWebhookResponse", {"received": serializers.BooleanField()})},
+    )
     def post(self, request):
         return _dispatch(PaymentProvider.BKASH, request)

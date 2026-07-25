@@ -1,7 +1,5 @@
-from django.conf import settings
-from django.db.models import Q
-from django.shortcuts import get_object_or_404
-from rest_framework import status
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -25,13 +23,24 @@ def _owned_payments(user):
     """Payments belonging to the requesting user's own orders."""
     return Payment.objects.filter(Q(user=user) | Q(order__user=user)).select_related("order")
 
+
 class PaymentConfigView(APIView):
-    # Public payment configuration for the browser (e.g. Stripe publishable key).
-
-
+    """Public payment configuration for the browser (e.g. Stripe publishable key)."""
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        tags=["Payments"],
+        summary="Get public payment configuration (e.g. Stripe keys)",
+        responses={
+            200: inline_serializer(
+                "PaymentConfigResponse",
+                fields={
+                    "stripe": serializers.DictField(),
+                },
+            )
+        },
+    )
     def get(self, request):
         stripe_strategy = get_strategy(PaymentProvider.STRIPE)
         return Response(
@@ -45,11 +54,19 @@ class PaymentConfigView(APIView):
                 }
             }
         )
+
+
 class PaymentListView(APIView):
     """List the current user's payments."""
 
     permission_classes = [IsAuthenticated]
+    serializer_class = PaymentSerializer
 
+    @extend_schema(
+        tags=["Payments"],
+        summary="List current user's payments",
+        responses={200: PaymentSerializer(many=True)},
+    )
     def get(self, request):
         payments = _owned_payments(request.user)
         return Response(PaymentSerializer(payments, many=True).data)
@@ -59,7 +76,13 @@ class PaymentDetailView(APIView):
     """Retrieve a single payment owned by the user."""
 
     permission_classes = [IsAuthenticated]
+    serializer_class = PaymentSerializer
 
+    @extend_schema(
+        tags=["Payments"],
+        summary="Retrieve single payment by ID",
+        responses={200: PaymentSerializer},
+    )
     def get(self, request, pk):
         payment = get_object_or_404(_owned_payments(request.user), pk=pk)
         return Response(PaymentSerializer(payment).data)
@@ -69,7 +92,14 @@ class PaymentInitiateView(APIView):
     """Initiate a payment for one of the user's pending orders."""
 
     permission_classes = [IsAuthenticated]
+    serializer_class = InitiatePaymentSerializer
 
+    @extend_schema(
+        tags=["Payments"],
+        summary="Initiate a payment for user's active cart/order",
+        request=InitiatePaymentSerializer,
+        responses={201: PaymentSerializer},
+    )
     def post(self, request):
         serializer = InitiatePaymentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -86,7 +116,14 @@ class PaymentConfirmView(APIView):
     """Confirm/execute a payment (polling flow or client callback)."""
 
     permission_classes = [IsAuthenticated]
+    serializer_class = ConfirmPaymentSerializer
 
+    @extend_schema(
+        tags=["Payments"],
+        summary="Confirm or execute payment (e.g. bKash execute)",
+        request=ConfirmPaymentSerializer,
+        responses={200: PaymentSerializer},
+    )
     def post(self, request):
         serializer = ConfirmPaymentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -103,7 +140,13 @@ class PaymentVerifyView(APIView):
     """Query the provider for the payment's current status."""
 
     permission_classes = [IsAuthenticated]
+    serializer_class = PaymentSerializer
 
+    @extend_schema(
+        tags=["Payments"],
+        summary="Query provider for payment status update",
+        responses={200: PaymentSerializer},
+    )
     def get(self, request, pk):
         payment = get_object_or_404(_owned_payments(request.user), pk=pk)
         service = PaymentService(payment.provider)
@@ -112,12 +155,16 @@ class PaymentVerifyView(APIView):
 
 
 class PaymentCancelView(APIView):
-    # Finalize a payment the customer did not complete.
-
-
+    """Finalize a payment the customer did not complete."""
 
     permission_classes = [IsAuthenticated]
+    serializer_class = PaymentSerializer
 
+    @extend_schema(
+        tags=["Payments"],
+        summary="Cancel or abandon incomplete payment",
+        responses={200: PaymentSerializer},
+    )
     def post(self, request, pk):
         payment = get_object_or_404(_owned_payments(request.user), pk=pk)
         raw = request.data.get("failed", request.query_params.get("failed", False))
@@ -131,7 +178,14 @@ class PaymentResumeView(APIView):
     """Resume checkout for one of the user's pending orders."""
 
     permission_classes = [IsAuthenticated]
+    serializer_class = ResumePaymentSerializer
 
+    @extend_schema(
+        tags=["Payments"],
+        summary="Resume checkout for a pending order",
+        request=ResumePaymentSerializer,
+        responses={201: PaymentSerializer},
+    )
     def post(self, request):
         serializer = ResumePaymentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -161,7 +215,13 @@ class AdminPaymentListView(APIView):
     the customer's details for the admin panel."""
 
     permission_classes = [IsAdminUser]
+    serializer_class = AdminPaymentSerializer
 
+    @extend_schema(
+        tags=["Admin Payments"],
+        summary="List all payments across all users (Admin)",
+        responses={200: AdminPaymentSerializer(many=True)},
+    )
     def get(self, request):
         payments = Payment.objects.select_related("user", "order").all()
         status_param = request.query_params.get("status")

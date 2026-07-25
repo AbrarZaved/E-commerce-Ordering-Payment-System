@@ -46,4 +46,6 @@ class CartItem(TimeStampedModel):
     @property
     def subtotal(self) -> Decimal:
         """Live line subtotal using the product's current price."""
+        if not getattr(self, "product_id", None) or self.quantity is None:
+            return Decimal("0.00")
         return (self.product.price * self.quantity).quantize(Decimal("0.01"))

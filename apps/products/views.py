@@ -24,11 +24,23 @@ class CategoryListCreateView(APIView):
     """List all categories or create one (admin-only writes)."""
 
     permission_classes = [IsAdminOrReadOnly]
+    serializer_class = CategorySerializer
 
+    @extend_schema(
+        tags=["Categories"],
+        summary="List all categories",
+        responses={200: CategorySerializer(many=True)},
+    )
     def get(self, request):
         categories = Category.objects.all()
         return Response(CategorySerializer(categories, many=True).data)
 
+    @extend_schema(
+        tags=["Categories"],
+        summary="Create a category (Admin)",
+        request=CategorySerializer,
+        responses={201: CategorySerializer},
+    )
     def post(self, request):
         serializer = CategorySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -38,27 +50,50 @@ class CategoryListCreateView(APIView):
 
 class CategoryDetailView(APIView):
     permission_classes = [IsAdminOrReadOnly]
+    serializer_class = CategorySerializer
 
     def get_object(self, pk):
         obj = get_object_or_404(Category, pk=pk)
         self.check_object_permissions(self.request, obj)
         return obj
 
+    @extend_schema(
+        tags=["Categories"],
+        summary="Retrieve a category",
+        responses={200: CategorySerializer},
+    )
     def get(self, request, pk):
         return Response(CategorySerializer(self.get_object(pk)).data)
 
+    @extend_schema(
+        tags=["Categories"],
+        summary="Update a category (Admin)",
+        request=CategorySerializer,
+        responses={200: CategorySerializer},
+    )
     def put(self, request, pk):
         serializer = CategorySerializer(self.get_object(pk), data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=["Categories"],
+        summary="Partial update a category (Admin)",
+        request=CategorySerializer,
+        responses={200: CategorySerializer},
+    )
     def patch(self, request, pk):
         serializer = CategorySerializer(self.get_object(pk), data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=["Categories"],
+        summary="Delete a category (Admin)",
+        responses={204: None},
+    )
     def delete(self, request, pk):
         self.get_object(pk).delete()
         return Response(status=204)
@@ -68,8 +103,13 @@ class CategoryTreeView(APIView):
     """Return the full nested category tree (Redis-cached)."""
 
     permission_classes = [AllowAny]
+    serializer_class = CategoryTreeSerializer
 
-    @extend_schema(responses=CategoryTreeSerializer(many=True))
+    @extend_schema(
+        tags=["Categories"],
+        summary="Retrieve nested category tree (Redis cached)",
+        responses=CategoryTreeSerializer(many=True),
+    )
     def get(self, request):
         return Response(get_category_tree())
 
@@ -78,7 +118,13 @@ class ProductListCreateView(APIView):
     """Public paginated/filterable list; admin-only create."""
 
     permission_classes = [IsAdminOrReadOnly]
+    serializer_class = ProductSerializer
 
+    @extend_schema(
+        tags=["Products"],
+        summary="List and filter products",
+        responses={200: ProductSerializer(many=True)},
+    )
     def get(self, request):
         queryset = Product.objects.select_related("category").all()
         # Filtering (django-filter)
@@ -101,6 +147,12 @@ class ProductListCreateView(APIView):
         serializer = ProductSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
+    @extend_schema(
+        tags=["Products"],
+        summary="Create a product (Admin)",
+        request=ProductSerializer,
+        responses={201: ProductSerializer},
+    )
     def post(self, request):
         serializer = ProductSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -110,27 +162,50 @@ class ProductListCreateView(APIView):
 
 class ProductDetailView(APIView):
     permission_classes = [IsAdminOrReadOnly]
+    serializer_class = ProductSerializer
 
     def get_object(self, pk):
         obj = get_object_or_404(Product.objects.select_related("category"), pk=pk)
         self.check_object_permissions(self.request, obj)
         return obj
 
+    @extend_schema(
+        tags=["Products"],
+        summary="Retrieve a product",
+        responses={200: ProductSerializer},
+    )
     def get(self, request, pk):
         return Response(ProductSerializer(self.get_object(pk)).data)
 
+    @extend_schema(
+        tags=["Products"],
+        summary="Update a product (Admin)",
+        request=ProductSerializer,
+        responses={200: ProductSerializer},
+    )
     def put(self, request, pk):
         serializer = ProductSerializer(self.get_object(pk), data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=["Products"],
+        summary="Partial update a product (Admin)",
+        request=ProductSerializer,
+        responses={200: ProductSerializer},
+    )
     def patch(self, request, pk):
         serializer = ProductSerializer(self.get_object(pk), data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=["Products"],
+        summary="Delete a product (Admin)",
+        responses={204: None},
+    )
     def delete(self, request, pk):
         self.get_object(pk).delete()
         return Response(status=204)
@@ -140,8 +215,13 @@ class ProductRecommendationsView(APIView):
     """Related products found via DFS over the category subtree."""
 
     permission_classes = [AllowAny]
+    serializer_class = ProductSerializer
 
-    @extend_schema(responses=ProductSerializer(many=True))
+    @extend_schema(
+        tags=["Products"],
+        summary="Get DFS category-subtree recommendations",
+        responses=ProductSerializer(many=True),
+    )
     def get(self, request, pk):
         product = get_object_or_404(Product, pk=pk)
         products = recommended_products(product)

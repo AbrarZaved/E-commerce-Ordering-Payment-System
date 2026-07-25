@@ -110,7 +110,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Dhaka"
 USE_I18N = True
 USE_TZ = True
 
@@ -203,12 +203,14 @@ CORS_ALLOWED_ORIGINS = env.list(
     default=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5500"],
 )
 CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=DEBUG)
+from corsheaders.defaults import default_headers
+CORS_ALLOW_HEADERS = list(default_headers) + ["ngrok-skip-browser-warning"]
 
 # Payment provider config (never hardcode secrets)
 STRIPE_API_KEY = env("STRIPE_API_KEY", default="")
 STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY", default="")
 STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
-STRIPE_CURRENCY = env("STRIPE_CURRENCY", default="usd")
+STRIPE_CURRENCY = env("STRIPE_CURRENCY", default="BDT")
 FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="http://localhost:3000")
 STRIPE_SUCCESS_URL = env("STRIPE_SUCCESS_URL", default=FRONTEND_BASE_URL)
 STRIPE_CANCEL_URL = env("STRIPE_CANCEL_URL", default=FRONTEND_BASE_URL)

@@ -86,7 +86,11 @@ def recommended_products(product: Product, limit: int = 10) -> Iterable[Product]
     if product.category is None:
         return Product.objects.none()
 
-    category_ids = dfs_descendant_category_ids(product.category)
+    root_cat = product.category
+    while root_cat.parent_id is not None:
+        root_cat = root_cat.parent
+
+    category_ids = dfs_descendant_category_ids(root_cat)
     # Preserve DFS ordering as a relevance signal.
     ordering = {cat_id: index for index, cat_id in enumerate(category_ids)}
 

@@ -200,17 +200,14 @@ class PaymentService:
                 if order.status != OrderStatus.PAID:
                     reduce_stock_for_order(order)
                     order.mark_paid()
-            clear_cart(payment.user)
+            user = payment.user or (payment.order.user if payment.order_id else None)
+            if user:
+                clear_cart(user)
             logger.info("order %s marked paid via payment %s", payment.order_id, payment.id)
 
         elif status in (PaymentStatus.FAILED, PaymentStatus.CANCELED) and not already_final:
-            # Release the still-pending order (no stock was ever reduced).
-            if payment.order_id:
-                order = Order.objects.select_for_update().get(pk=payment.order_id)
-                if order.status == OrderStatus.PENDING:
-                    order.mark_canceled()
             logger.warning(
-                "payment %s -> %s; order %s cancelled", payment.id, status, payment.order_id
+                "payment %s -> %s for order %s", payment.id, status, payment.order_id
             )
 
         return payment

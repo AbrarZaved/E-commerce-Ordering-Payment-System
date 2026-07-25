@@ -140,5 +140,6 @@ def checkout_cart(user):
         raise InvalidOrderState("Your cart is empty.")
     payload = [{"product_id": i.product_id, "quantity": i.quantity} for i in items]
     order = create_order(user, payload)
+    clear_cart(user)
     logger.info("cart checkout user=%s order=%s", user.id, order.id)
     return order

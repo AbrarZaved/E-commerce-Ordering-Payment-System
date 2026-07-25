@@ -8,7 +8,6 @@ from drf_spectacular.views import (
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.core.views import HealthCheckView
-from apps.core.views import HealthCheckView
 from apps.users.views import AdminUserListView
 
 api_v1 = [
